@@ -1,0 +1,43 @@
+2026-10-15 17:02:50.803 IST [10092] LOG:  starting PostgreSQL 17.9 on x86_64-windows, compiled by msvc-19.44.35225, 64-bit
+2026-10-15 17:02:50.835 IST [10092] LOG:  listening on IPv6 address "::1", port 5433
+2026-10-15 17:02:50.836 IST [10092] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-10-15 17:02:50.904 IST [9600] LOG:  database system was interrupted; last known up at 2026-10-15 17:00:36 IST
+2026-10-15 17:02:51.035 IST [9600] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-10-15 17:02:51.038 IST [9600] LOG:  invalid record length at 0/15723F0: expected at least 24, got 0
+2026-10-15 17:02:51.038 IST [9600] LOG:  redo is not required
+2026-10-15 17:02:51.046 IST [20080] LOG:  checkpoint starting: end-of-recovery immediate wait
+2026-10-15 17:02:51.057 IST [20080] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.002 s, sync=0.003 s, total=0.017 s; sync files=2, longest=0.002 s, average=0.002 s; distance=0 kB, estimate=0 kB; lsn=0/15723F0, redo lsn=0/15723F0
+2026-10-15 17:02:51.084 IST [10092] LOG:  database system is ready to accept connections
+2026-10-15 18:10:32.842 IST [17560] LOG:  starting PostgreSQL 17.9 on x86_64-windows, compiled by msvc-19.44.35225, 64-bit
+2026-10-15 18:10:32.848 IST [17560] LOG:  listening on IPv6 address "::1", port 5433
+2026-10-15 18:10:32.849 IST [17560] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-10-15 18:10:32.903 IST [23916] LOG:  database system was interrupted; last known up at 2026-10-15 17:10:51 IST
+2026-10-15 18:10:33.206 IST [23916] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-10-15 18:10:33.210 IST [23916] LOG:  redo starts at 0/1A197C8
+2026-10-15 18:10:33.210 IST [23916] LOG:  invalid record length at 0/1A19908: expected at least 24, got 0
+2026-10-15 18:10:33.210 IST [23916] LOG:  redo done at 0/1A198D0 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-10-15 18:10:33.217 IST [3100] LOG:  checkpoint starting: end-of-recovery immediate wait
+2026-10-15 18:10:33.235 IST [3100] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.005 s, sync=0.003 s, total=0.020 s; sync files=2, longest=0.002 s, average=0.002 s; distance=0 kB, estimate=0 kB; lsn=0/1A19908, redo lsn=0/1A19908
+2026-10-15 18:10:33.263 IST [17560] LOG:  database system is ready to accept connections
+2026-10-16 10:51:02.497 IST [13180] LOG:  starting PostgreSQL 17.9 on x86_64-windows, compiled by msvc-19.44.35225, 64-bit
+2026-10-16 10:51:02.511 IST [13180] LOG:  listening on IPv6 address "::1", port 5433
+2026-10-16 10:51:02.512 IST [13180] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-10-16 10:51:02.625 IST [15860] LOG:  database system was interrupted; last known up at 2026-10-16 10:47:31 IST
+2026-10-16 10:51:03.801 IST [15860] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-10-16 10:51:03.807 IST [15860] LOG:  redo starts at 0/1A238B0
+2026-10-16 10:51:03.807 IST [15860] LOG:  invalid record length at 0/1A239B8: expected at least 24, got 0
+2026-10-16 10:51:03.807 IST [15860] LOG:  redo done at 0/1A23980 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-10-16 10:51:03.819 IST [25384] LOG:  checkpoint starting: end-of-recovery immediate wait
+2026-10-16 10:51:03.844 IST [25384] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.008 s, sync=0.006 s, total=0.027 s; sync files=2, longest=0.004 s, average=0.003 s; distance=0 kB, estimate=0 kB; lsn=0/1A239B8, redo lsn=0/1A239B8
+2026-10-16 10:51:03.904 IST [13180] LOG:  database system is ready to accept connections
+2026-10-16 11:17:25.402 IST [20076] LOG:  starting PostgreSQL 17.9 on x86_64-windows, compiled by msvc-19.44.35225, 64-bit
+2026-10-16 11:17:25.412 IST [20076] LOG:  listening on IPv6 address "::1", port 5433
+2026-10-16 11:17:25.412 IST [20076] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-10-16 11:17:25.520 IST [28640] LOG:  database system was interrupted; last known up at 2026-10-16 11:05:19 IST
+2026-10-16 11:17:26.991 IST [28640] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-10-16 11:17:27.000 IST [28640] LOG:  redo starts at 0/1A23B58
+2026-10-16 11:17:27.000 IST [28640] LOG:  invalid record length at 0/1A23B90: expected at least 24, got 0
+2026-10-16 11:17:27.000 IST [28640] LOG:  redo done at 0/1A23B58 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-10-16 11:17:27.018 IST [24988] LOG:  checkpoint starting: end-of-recovery immediate wait
+2026-10-16 11:17:27.049 IST [24988] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.010 s, sync=0.006 s, total=0.036 s; sync files=2, longest=0.003 s, average=0.003 s; distance=0 kB, estimate=0 kB; lsn=0/1A23B90, redo lsn=0/1A23B90
+2026-10-16 11:17:27.125 IST [20076] LOG:  database system is ready to accept connections

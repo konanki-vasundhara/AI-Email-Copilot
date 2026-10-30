@@ -1,0 +1,7 @@
+2026-10-16 12:26:26.155 IST [13008] LOG:  starting PostgreSQL 17.9 on x86_64-windows, compiled by msvc-19.44.35225, 64-bit
+2026-10-16 12:26:26.166 IST [13008] LOG:  listening on IPv6 address "::1", port 5433
+2026-10-16 12:26:26.167 IST [13008] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-10-16 12:26:26.277 IST [13784] LOG:  database system was interrupted; last known up at 2026-10-16 12:23:29 IST
+2026-10-16 12:26:32.881 IST [13784] LOG:  could not open file "./pg_server.log": sharing violation
+2026-10-16 12:26:32.881 IST [13784] DETAIL:  Continuing to retry for 30 seconds.
+2026-10-16 12:26:32.881 IST [13784] HINT:  You might have antivirus, backup, or similar software interfering with the database system.
