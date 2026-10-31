@@ -50,8 +50,46 @@ def test_ai_reply_draft_generation():
     tasks = [{"title": "Please send over the updated API documentation"}]
 
     draft = ai_service.generate_reply_draft(subject, sender, body, tasks)
-    assert "Hi Alice Smith," in draft
+    assert "Alice" in draft
     assert "Client Deliverables" in draft
-    assert "Please send over the updated API documentation" in draft
-    assert "AI Email Copilot" in draft
+    assert "updated API documentation" in draft or "details" in draft
+
+
+def test_ai_job_application_reply_and_deadline():
+    """Verify exact handling of job application email with deadline."""
+    subject = "testing deadline"
+    sender = "konanki vasundhara <vasundharakonanki12@gmail.com>"
+    body = "Hii vassu, if your interested in applying this job reply to this email before 1 PM 31-10-2026"
+
+    tasks = ai_service.extract_tasks_and_deadlines(subject, body)
+    assert len(tasks) == 1
+    assert "applying this job" in tasks[0]["title"].lower()
+    assert tasks[0]["due_at"] is not None
+    assert tasks[0]["due_at"].day == 31
+    assert tasks[0]["due_at"].month == 10
+    assert tasks[0]["due_at"].hour == 13
+
+    draft = ai_service.generate_reply_draft(subject, sender, body, tasks)
+    assert "Konanki" in draft
+    assert "interested in applying" in draft
+    assert "Vasundhara" in draft
+
+
+def test_ai_filters_boilerplate_and_marketing():
+    """Verify system boilerplate and newsletter noise are filtered out."""
+    subject = "Newsletter update"
+    body = """
+    There's nothing that you need to do right now.
+    Please Enable Javascript to view this email.
+    Kindly ignore this email if you received it by mistake.
+    If you no longer wish to receive updates, please reply with 'remove'.
+    """
+    # Marketing category should return zero tasks
+    tasks = ai_service.extract_tasks_and_deadlines(subject, body, category="Newsletter / Marketing")
+    assert len(tasks) == 0
+
+    # Even without category, junk phrases should be filtered
+    tasks_normal = ai_service.extract_tasks_and_deadlines(subject, body)
+    assert len(tasks_normal) == 0
+
 

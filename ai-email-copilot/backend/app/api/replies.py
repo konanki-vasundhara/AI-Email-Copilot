@@ -45,7 +45,24 @@ async def list_reply_drafts(
 
     query = query.order_by(desc(ReplyDraft.created_at))
     result = await db.execute(query)
-    return list(result.scalars().all())
+    drafts = list(result.scalars().all())
+
+    # Auto-upgrade any outdated boilerplate drafts
+    updated_any = False
+    for d in drafts:
+        if d.status == "pending" and ("will review it in detail shortly" in d.body or "AI Email Copilot" in d.body):
+            e_stmt = select(Email).where(Email.id == d.email_id)
+            email_rec = (await db.execute(e_stmt)).scalar_one_or_none()
+            if email_rec and user.email.lower() not in (email_rec.sender or "").lower():
+                tasks = ai_service.extract_tasks_and_deadlines(email_rec.subject or "", email_rec.snippet or "")
+                d.body = ai_service.generate_reply_draft(
+                    email_rec.subject or "", email_rec.sender or "", email_rec.snippet or "", tasks
+                )
+                updated_any = True
+    if updated_any:
+        await db.commit()
+
+    return drafts
 
 
 @router.post("/generate", response_model=ReplyDraftRead, summary="Generate an AI draft reply")
@@ -57,6 +74,7 @@ async def generate_draft(
     """
     Generates an AI reply draft for the specified email and saves it as 'pending'.
     Strict safeguard: the draft will NEVER be sent automatically.
+    Reply drafts are only for received emails, not sent emails.
     """
     u_stmt = select(User).where(User.email == user_email)
     user = (await db.execute(u_stmt)).scalar_one_or_none()
@@ -68,8 +86,33 @@ async def generate_draft(
     if not email_rec:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not found")
 
+    if user.email.lower() in (email_rec.sender or "").lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot generate a reply draft for an email sent by yourself."
+        )
+
     # Generate draft using AI service
     tasks = ai_service.extract_tasks_and_deadlines(email_rec.subject or "", email_rec.snippet or "")
+    
+    # Save newly detected tasks to Task table if not already present
+    from app.db.models import Task
+    for t_info in tasks:
+        t_stmt = select(Task).where(
+            Task.email_id == email_rec.id,
+            Task.title == t_info["title"],
+        )
+        existing_t = (await db.execute(t_stmt)).scalar_one_or_none()
+        if not existing_t:
+            new_task = Task(
+                user_id=user.id,
+                email_id=email_rec.id,
+                title=t_info["title"],
+                due_at=t_info.get("due_at"),
+                status="pending",
+            )
+            db.add(new_task)
+
     draft_body = ai_service.generate_reply_draft(
         email_rec.subject or "", email_rec.sender or "", email_rec.snippet or "", tasks
     )
@@ -79,6 +122,19 @@ async def generate_draft(
         if (email_rec.subject or "").lower().startswith("re:")
         else f"Re: {email_rec.subject}"
     )
+
+    # Check for existing pending draft to update
+    d_stmt = select(ReplyDraft).where(
+        ReplyDraft.email_id == email_rec.id,
+        ReplyDraft.status == "pending"
+    )
+    existing_draft = (await db.execute(d_stmt)).scalar_one_or_none()
+    if existing_draft:
+        existing_draft.body = draft_body
+        existing_draft.subject = reply_subject
+        await db.commit()
+        await db.refresh(existing_draft)
+        return existing_draft
 
     draft = ReplyDraft(
         user_id=user.id,

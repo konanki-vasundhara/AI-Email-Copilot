@@ -13,6 +13,8 @@ import {
   Sparkles,
   Inbox,
   X,
+  Calendar,
+  ExternalLink,
 } from 'lucide-react';
 import type { EmailItem, TaskItem, ReplyDraftItem, AuthStatusResponse } from './types';
 import * as api from './services/api';
@@ -23,9 +25,11 @@ export default function App() {
   });
 
   const [authStatus, setAuthStatus] = useState<AuthStatusResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<'inbox' | 'tasks'>('inbox');
+  const [activeTab, setActiveTab] = useState<'inbox' | 'sent' | 'tasks'>('inbox');
   const [emails, setEmails] = useState<EmailItem[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [taskStatusFilter, setTaskStatusFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [autoSync, setAutoSync] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(false);
   const [syncing, setSyncing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -53,6 +57,29 @@ export default function App() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
+
+  const isSentEmail = (email: EmailItem) => {
+    return (email.sender || '').toLowerCase().includes(currentUserEmail.toLowerCase());
+  };
+
+  // Auto-sync background timer (runs every 45s when connected)
+  useEffect(() => {
+    if (!autoSync || !authStatus?.connected) return;
+
+    const interval = setInterval(async () => {
+      try {
+        await api.syncEmails(currentUserEmail);
+        const data = await api.listEmails(currentUserEmail, selectedCategory, searchQuery);
+        setEmails(data);
+        const tData = await api.listTasks(currentUserEmail);
+        setTasks(tData);
+      } catch (err) {
+        console.warn('Auto-sync background check skipped:', err);
+      }
+    }, 45000);
+
+    return () => clearInterval(interval);
+  }, [autoSync, authStatus?.connected, currentUserEmail, selectedCategory, searchQuery]);
 
   // Check auth and load data on user change
   useEffect(() => {
@@ -132,16 +159,16 @@ export default function App() {
     }
   };
 
-  const handleSync = async () => {
+  const handleSync = async (showAlert = true) => {
     setSyncing(true);
     setErrorMessage(null);
     try {
       const res = await api.syncEmails(currentUserEmail);
-      alert(res.message);
+      if (showAlert) alert(res.message);
       await loadEmails();
       await loadTasks();
     } catch (err: any) {
-      setErrorMessage(err.message);
+      if (showAlert) setErrorMessage(err.message);
     } finally {
       setSyncing(false);
     }
@@ -214,6 +241,74 @@ export default function App() {
     }
   };
 
+  const handleClearCompleted = async () => {
+    if (!confirm('Are you sure you want to clear all completed tasks?')) return;
+    try {
+      await api.clearCompletedTasks(currentUserEmail);
+      await loadTasks();
+    } catch (err: any) {
+      alert(`Failed to clear completed tasks: ${err.message}`);
+    }
+  };
+
+  const handleOpenEmailFromTask = async (task: TaskItem) => {
+    if (!task.email_id) return;
+    const found = emails.find((e) => e.id === task.email_id);
+    if (found) {
+      handleOpenEmail(found);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/v1/emails/${task.email_id}?user_email=${encodeURIComponent(currentUserEmail)}`);
+      if (res.ok) {
+        const emailData = await res.json();
+        handleOpenEmail(emailData);
+      }
+    } catch (err) {
+      console.error('Failed to load email for task', err);
+    }
+  };
+
+  const getDeadlineInfo = (dueAtStr?: string | null, isCompleted?: boolean) => {
+    if (!dueAtStr) {
+      return { label: 'Action Item', className: 'deadline-normal', isOverdue: false, isToday: false };
+    }
+    const due = new Date(dueAtStr);
+    const now = new Date();
+    const isPast = due.getTime() < now.getTime();
+
+    const isToday =
+      due.getFullYear() === now.getFullYear() &&
+      due.getMonth() === now.getMonth() &&
+      due.getDate() === now.getDate();
+
+    const timeFormatted = due.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dateFormatted = due.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+
+    if (!isCompleted && isPast) {
+      return {
+        label: `Overdue (${dateFormatted} • ${timeFormatted})`,
+        className: 'deadline-overdue',
+        isOverdue: true,
+        isToday: false,
+      };
+    }
+    if (!isCompleted && isToday) {
+      return {
+        label: `Due Today at ${timeFormatted}`,
+        className: 'deadline-today',
+        isOverdue: false,
+        isToday: true,
+      };
+    }
+    return {
+      label: `Due: ${dateFormatted} at ${timeFormatted}`,
+      className: 'deadline-upcoming',
+      isOverdue: false,
+      isToday: false,
+    };
+  };
+
   const categories = [
     'All',
     'Work',
@@ -235,15 +330,11 @@ export default function App() {
         </div>
 
         <div className="header-actions">
-          {/* Active Email User Switcher */}
-          <input
-            type="email"
-            value={currentUserEmail}
-            onChange={(e) => setCurrentUserEmail(e.target.value)}
-            title="Active user email identifier"
-            className="search-input"
-            style={{ width: '220px', padding: '0.4rem 0.6rem' }}
-          />
+          {/* Active User Account Badge */}
+          <div className="user-badge" title={`Active Account: ${currentUserEmail}`}>
+            <Mail size={13} color="#64748b" />
+            <span>{currentUserEmail}</span>
+          </div>
 
           {/* Connection Status Badge */}
           {authStatus?.connected ? (
@@ -253,7 +344,7 @@ export default function App() {
               <button
                 onClick={handleDisconnect}
                 className="btn btn-outline"
-                style={{ padding: '0.2rem 0.4rem', marginLeft: '0.5rem', fontSize: '0.75rem' }}
+                style={{ padding: '0.25rem 0.5rem', marginLeft: '0.4rem', fontSize: '0.75rem' }}
                 title="Disconnect Gmail"
               >
                 <LogOut size={12} /> Disconnect
@@ -261,7 +352,7 @@ export default function App() {
               <button
                 onClick={handleDeleteAllData}
                 className="btn btn-danger"
-                style={{ padding: '0.2rem 0.4rem', marginLeft: '0.35rem', fontSize: '0.75rem' }}
+                style={{ padding: '0.25rem 0.5rem', marginLeft: '0.25rem', fontSize: '0.75rem' }}
                 title="Permanently purge all stored emails, tasks, and disconnect account"
               >
                 <Trash2 size={12} /> Purge Data
@@ -281,27 +372,47 @@ export default function App() {
             </div>
           )}
 
-          {/* Sync Trigger */}
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="btn btn-outline"
-            title="Synchronize recent emails from Gmail"
-          >
-            <RefreshCw size={15} className={syncing ? 'spin' : ''} />
-            <span>{syncing ? 'Syncing...' : 'Sync Inbox'}</span>
-          </button>
+          {/* Auto-Sync Toggle & Manual Sync */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <button
+              onClick={() => setAutoSync(!autoSync)}
+              className={`status-pill ${autoSync ? 'status-connected' : 'status-disconnected'}`}
+              style={{ cursor: 'pointer', border: 'none', fontSize: '0.78rem', padding: '0.4rem 0.7rem' }}
+              title={autoSync ? 'Auto-sync active every 45s (click to pause)' : 'Auto-sync paused (click to enable)'}
+            >
+              <RefreshCw size={12} className={autoSync && syncing ? 'spin' : ''} />
+              <span>{autoSync ? '⚡ Auto-Sync ON' : '⏸ Auto-Sync OFF'}</span>
+            </button>
+
+            <button
+              onClick={() => handleSync(true)}
+              disabled={syncing}
+              className="btn btn-primary"
+              style={{ padding: '0.45rem 0.9rem' }}
+              title="Synchronize emails from Gmail"
+            >
+              <RefreshCw size={15} className={syncing ? 'spin' : ''} />
+              <span>{syncing ? 'Syncing...' : 'Sync Now'}</span>
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Tabs */}
+      {/* Tabs - Matched to Gmail Folders */}
       <nav className="tabs-bar">
         <button
           className={`tab-btn ${activeTab === 'inbox' ? 'active' : ''}`}
           onClick={() => setActiveTab('inbox')}
         >
           <Inbox size={18} />
-          <span>Inbox & Analyses ({emails.length})</span>
+          <span>Inbox (Received) ({emails.filter((e) => !isSentEmail(e)).length})</span>
+        </button>
+        <button
+          className={`tab-btn ${activeTab === 'sent' ? 'active' : ''}`}
+          onClick={() => setActiveTab('sent')}
+        >
+          <Send size={18} />
+          <span>Sent ({emails.filter((e) => isSentEmail(e)).length})</span>
         </button>
         <button
           className={`tab-btn ${activeTab === 'tasks' ? 'active' : ''}`}
@@ -349,114 +460,260 @@ export default function App() {
               </div>
             </div>
 
-            {/* Email List */}
+            {/* Received Email List */}
             {loading ? (
               <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
-                Loading emails...
+                Loading inbox...
               </div>
-            ) : emails.length === 0 ? (
+            ) : emails.filter((e) => !isSentEmail(e)).length === 0 ? (
               <div style={{ textAlign: 'center', padding: '4rem 1rem', background: '#ffffff', borderRadius: '0.75rem', border: '1px solid #e2e8f0' }}>
                 <Mail size={40} color="#94a3b8" style={{ marginBottom: '1rem' }} />
-                <h3>No emails found</h3>
+                <h3>No received emails in Inbox</h3>
                 <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-                  Connect your Gmail account and click <strong>Sync Inbox</strong> to import and analyze messages.
+                  Incoming emails sent to your Gmail address will appear here with automated AI analysis.
                 </p>
               </div>
             ) : (
-              emails.map((email) => {
-                const importance = email.analysis?.importance || 'Normal';
-                const badgeClass =
-                  importance === 'High'
-                    ? 'badge-high'
-                    : importance === 'Low'
-                    ? 'badge-low'
-                    : 'badge-normal';
+              emails
+                .filter((e) => !isSentEmail(e))
+                .map((email) => {
+                  const importance = email.analysis?.importance || 'Normal';
+                  const badgeClass =
+                    importance === 'High'
+                      ? 'badge-high'
+                      : importance === 'Low'
+                      ? 'badge-low'
+                      : 'badge-normal';
 
-                return (
+                  return (
+                    <div
+                      key={email.id}
+                      className="email-card"
+                      onClick={() => handleOpenEmail(email)}
+                    >
+                      <div className="email-card-header">
+                        <div className="email-badges">
+                          <span className={`badge ${badgeClass}`}>{importance}</span>
+                          {email.analysis?.category && (
+                            <span className="badge badge-category">{email.analysis.category}</span>
+                          )}
+                          {email.analysis?.sentiment && (
+                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                              • {email.analysis.sentiment}
+                            </span>
+                          )}
+                        </div>
+                        <span className="email-date">
+                          {new Date(email.received_at).toLocaleDateString()} {new Date(email.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+
+                      <div className="email-subject">{email.subject || '(No Subject)'}</div>
+                      <div className="email-sender">From: {email.sender}</div>
+
+                      {email.analysis?.summary ? (
+                        <div className="email-summary-box">
+                          <strong>AI Summary:</strong> {email.analysis.summary}
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                          {email.snippet || 'No preview available.'}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })
+            )}
+          </>
+        )}
+
+        {/* Sent Emails View - Exactly Matching Gmail Sent Folder */}
+        {activeTab === 'sent' && (
+          <>
+            <div className="filter-row">
+              <div className="search-input" style={{ width: '100%', maxWidth: '420px' }}>
+                <Search size={16} color="#94a3b8" />
+                <input
+                  type="text"
+                  placeholder="Search sent emails..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && loadEmails()}
+                />
+              </div>
+            </div>
+
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
+                Loading sent emails...
+              </div>
+            ) : emails.filter((e) => isSentEmail(e)).length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '4rem 1rem', background: '#ffffff', borderRadius: '0.75rem', border: '1px solid #e2e8f0' }}>
+                <Send size={40} color="#94a3b8" style={{ marginBottom: '1rem' }} />
+                <h3>No sent emails found</h3>
+                <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+                  Emails sent from your Gmail address will appear here.
+                </p>
+              </div>
+            ) : (
+              emails
+                .filter((e) => isSentEmail(e))
+                .map((email) => (
                   <div
                     key={email.id}
                     className="email-card"
                     onClick={() => handleOpenEmail(email)}
                   >
                     <div className="email-card-header">
-                      <div className="email-badges">
-                        <span className={`badge ${badgeClass}`}>{importance}</span>
-                        {email.analysis?.category && (
-                          <span className="badge badge-category">{email.analysis.category}</span>
-                        )}
-                        {email.analysis?.sentiment && (
-                          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                            • {email.analysis.sentiment}
-                          </span>
-                        )}
-                      </div>
+                      <span className="badge badge-normal" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                        <Send size={11} /> Sent by you
+                      </span>
                       <span className="email-date">
                         {new Date(email.received_at).toLocaleDateString()} {new Date(email.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
 
                     <div className="email-subject">{email.subject || '(No Subject)'}</div>
-                    <div className="email-sender">From: {email.sender}</div>
+                    <div className="email-sender">From: You &lt;{currentUserEmail}&gt;</div>
 
-                    {email.analysis?.summary ? (
-                      <div className="email-summary-box">
-                        <strong>AI Summary:</strong> {email.analysis.summary}
-                      </div>
-                    ) : (
-                      <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
-                        {email.snippet || 'No preview available.'}
-                      </p>
-                    )}
+                    <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.4rem' }}>
+                      {email.snippet || 'No message preview available.'}
+                    </p>
                   </div>
-                );
-              })
+                ))
             )}
           </>
         )}
 
         {/* Tasks View */}
         {activeTab === 'tasks' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {tasks.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '3rem', background: '#fff', borderRadius: '0.5rem', border: '1px solid #e2e8f0' }}>
-                <CheckSquare size={36} color="#94a3b8" style={{ marginBottom: '0.5rem' }} />
-                <h3>No tasks extracted yet</h3>
-                <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
-                  Action items and deadlines detected by Hugging Face models will populate here automatically.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            {/* Filter toolbar */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  className={`category-pill ${taskStatusFilter === 'all' ? 'active' : ''}`}
+                  onClick={() => setTaskStatusFilter('all')}
+                >
+                  All ({tasks.length})
+                </button>
+                <button
+                  className={`category-pill ${taskStatusFilter === 'pending' ? 'active' : ''}`}
+                  onClick={() => setTaskStatusFilter('pending')}
+                >
+                  Pending ({tasks.filter((t) => t.status === 'pending').length})
+                </button>
+                <button
+                  className={`category-pill ${taskStatusFilter === 'completed' ? 'active' : ''}`}
+                  onClick={() => setTaskStatusFilter('completed')}
+                >
+                  Completed ({tasks.filter((t) => t.status === 'completed').length})
+                </button>
+                {tasks.some((t) => t.status === 'pending' && t.due_at && new Date(t.due_at).getTime() < Date.now()) && (
+                  <span className="badge badge-high" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <AlertTriangle size={12} /> Overdue Items
+                  </span>
+                )}
+              </div>
+
+              {tasks.some((t) => t.status === 'completed') && (
+                <button
+                  onClick={handleClearCompleted}
+                  className="btn btn-outline"
+                  style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+                >
+                  Clear Completed
+                </button>
+              )}
+            </div>
+
+            {tasks.filter((t) => (taskStatusFilter === 'all' ? true : t.status === taskStatusFilter)).length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '3.5rem 1rem', background: '#fff', borderRadius: '0.75rem', border: '1px solid #e2e8f0' }}>
+                <CheckSquare size={38} color="#94a3b8" style={{ marginBottom: '0.75rem' }} />
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>No tasks found</h3>
+                <p style={{ color: '#64748b', fontSize: '0.875rem', marginTop: '0.25rem' }}>
+                  {taskStatusFilter === 'completed'
+                    ? 'No completed tasks.'
+                    : 'Action items, deadlines, and replies detected from incoming emails will appear here automatically.'}
                 </p>
               </div>
             ) : (
-              tasks.map((task) => (
-                <div key={task.id} className={`task-item ${task.status === 'completed' ? 'completed' : ''}`}>
-                  <div className="task-left">
-                    <input
-                      type="checkbox"
-                      checked={task.status === 'completed'}
-                      onChange={() => handleToggleTask(task)}
-                      style={{ width: '1.2rem', height: '1.2rem', cursor: 'pointer' }}
-                    />
-                    <div>
-                      <div style={{ fontWeight: 500, fontSize: '0.95rem' }}>{task.title}</div>
-                      {task.due_at && (
-                        <div style={{ marginTop: '0.25rem' }}>
-                          <span className="due-pill">
-                            <Clock size={11} /> Due: {new Date(task.due_at).toLocaleDateString()}
+              tasks
+                .filter((t) => (taskStatusFilter === 'all' ? true : t.status === taskStatusFilter))
+                .map((task) => {
+                  const deadline = getDeadlineInfo(task.due_at, task.status === 'completed');
+                  return (
+                    <div
+                      key={task.id}
+                      className={`task-card-full ${task.status === 'completed' ? 'completed' : ''}`}
+                    >
+                      <div className="task-header-row">
+                        <div className="task-check-title">
+                          <input
+                            type="checkbox"
+                            checked={task.status === 'completed'}
+                            onChange={() => handleToggleTask(task)}
+                            style={{ width: '1.25rem', height: '1.25rem', cursor: 'pointer', accentColor: '#2563eb', marginTop: '2px' }}
+                          />
+                          <span className={`task-title-text ${task.status === 'completed' ? 'task-done' : ''}`}>
+                            {task.title}
                           </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span className={`deadline-badge ${deadline.className}`}>
+                            {deadline.isOverdue ? (
+                              <AlertTriangle size={12} />
+                            ) : deadline.isToday ? (
+                              <Clock size={12} />
+                            ) : (
+                              <Calendar size={12} />
+                            )}
+                            {deadline.label}
+                          </span>
+
+                          <button
+                            onClick={() => handleDeleteTask(task.id)}
+                            className="btn-icon-subtle"
+                            title="Delete task"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Originating Email Info */}
+                      {task.email && (
+                        <div className="task-email-context">
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.825rem' }}>
+                              <Mail size={14} color="#64748b" style={{ flexShrink: 0 }} />
+                              <span className="task-email-subject">
+                                <strong>Subject:</strong> {task.email.subject || '(No Subject)'}
+                              </span>
+                              <span style={{ color: '#cbd5e1' }}>•</span>
+                              <span className="task-email-sender">
+                                <strong>From:</strong> {task.email.sender}
+                              </span>
+                              <span style={{ color: '#cbd5e1' }}>•</span>
+                              <span className="task-email-date">
+                                <strong>Received:</strong> {new Date(task.email.received_at).toLocaleDateString()} {new Date(task.email.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+
+                            <button
+                              onClick={() => handleOpenEmailFromTask(task)}
+                              className="btn btn-primary"
+                              style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem', gap: '0.35rem', whiteSpace: 'nowrap' }}
+                            >
+                              <ExternalLink size={13} /> View Email & Reply
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
-                  </div>
-
-                  <button
-                    onClick={() => handleDeleteTask(task.id)}
-                    className="btn btn-outline"
-                    style={{ padding: '0.35rem 0.5rem', color: '#94a3b8' }}
-                    title="Delete task"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              ))
+                  );
+                })
             )}
           </div>
         )}
@@ -498,94 +755,129 @@ export default function App() {
                 </div>
               )}
 
-              {/* Strict Human-in-the-Loop Reply Section */}
-              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '1.25rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <ShieldCheck size={18} color="#2563eb" />
-                    <span>Reply Draft Approval Safeguard</span>
-                  </h4>
+              {/* Action items extracted for this email */}
+              {tasks.filter((t) => t.email_id === selectedEmail.id).length > 0 && (
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.65rem 0.85rem', borderRadius: '0.5rem', fontSize: '0.85rem', color: '#166534' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <CheckSquare size={14} /> Extracted Action Item(s) & Deadlines for this email:
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
+                    {tasks.filter((t) => t.email_id === selectedEmail.id).map((t) => (
+                      <li key={t.id} style={{ marginBottom: '0.2rem' }}>
+                        <strong>{t.title}</strong>
+                        {t.due_at && (
+                          <span style={{ marginLeft: '0.4rem', color: '#15803d', fontSize: '0.8rem' }}>
+                            (Due: {new Date(t.due_at).toLocaleDateString()} at {new Date(t.due_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-                  {!replyDraft && (
-                    <button onClick={handleGenerateDraft} className="btn btn-outline" style={{ fontSize: '0.8rem' }}>
-                      <Sparkles size={14} /> Generate Draft
+              {/* Reply Section: Only for Received Emails (Never for Sent Emails) */}
+              {isSentEmail(selectedEmail) ? (
+                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '1.25rem' }}>
+                  <div className="safeguard-banner" style={{ background: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }}>
+                    <Send size={18} style={{ flexShrink: 0, marginTop: '2px', color: '#2563eb' }} />
+                    <div>
+                      <strong>Outgoing Sent Message:</strong> This email was sent from your connected Gmail address. Reply drafts and action items are only generated for incoming messages received in your inbox.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Strict Human-in-the-Loop Reply Section */
+                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1rem' }}>
+                      <ShieldCheck size={18} color="#2563eb" />
+                      <span>Reply Draft Approval Safeguard</span>
+                    </h4>
+
+                    <button
+                      onClick={handleGenerateDraft}
+                      className="btn btn-outline"
+                      style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                    >
+                      <Sparkles size={14} color="#2563eb" /> {replyDraft ? 'Regenerate AI Draft' : 'Generate AI Draft'}
                     </button>
+                  </div>
+
+                  {/* Safeguard Warning Banner */}
+                  <div className="safeguard-banner">
+                    <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <strong>Zero Autonomous Sends:</strong> The assistant generates suggested text, but
+                      never delivers an email without your explicit review and confirmation.
+                    </div>
+                  </div>
+
+                  {replyDraft ? (
+                    <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.825rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '0.3rem' }}>
+                          Editable Draft Body:
+                        </label>
+                        <textarea
+                          className="reply-editor"
+                          value={draftBody}
+                          onChange={(e) => setDraftBody(e.target.value)}
+                          disabled={replyDraft.status === 'sent'}
+                        />
+                      </div>
+
+                      {sendSuccess && (
+                        <div className="status-pill status-connected" style={{ padding: '0.6rem 1rem', width: '100%' }}>
+                          <ShieldCheck size={16} />
+                          <span>Email successfully sent and confirmed via Gmail!</span>
+                        </div>
+                      )}
+
+                      {replyDraft.status === 'sent' ? (
+                        <div className="status-pill status-connected" style={{ padding: '0.6rem 1rem' }}>
+                          <ShieldCheck size={16} />
+                          <span>Email dispatched through Gmail on {new Date(replyDraft.sent_at || '').toLocaleString()}.</span>
+                        </div>
+                      ) : (
+                        <>
+                          <label className="confirm-checkbox">
+                            <input
+                              type="checkbox"
+                              checked={confirmSend}
+                              onChange={(e) => setConfirmSend(e.target.checked)}
+                            />
+                            <span>
+                              I have reviewed this draft and explicitly confirm sending it through my Gmail account.
+                            </span>
+                          </label>
+
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                            <button
+                              onClick={() => setSelectedEmail(null)}
+                              className="btn btn-outline"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={handleApproveAndSend}
+                              disabled={!confirmSend || sendingReply}
+                              className="btn btn-primary"
+                            >
+                              <Send size={15} />
+                              <span>{sendingReply ? 'Dispatching...' : 'Approve & Send via Gmail'}</span>
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.5rem' }}>
+                      Click <strong>Generate Draft</strong> above to have Hugging Face compose a contextual response.
+                    </p>
                   )}
                 </div>
-
-                {/* Safeguard Warning Banner */}
-                <div className="safeguard-banner">
-                  <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
-                  <div>
-                    <strong>Zero Autonomous Sends:</strong> The assistant generates suggested text, but
-                    never delivers an email without your explicit review and confirmation.
-                  </div>
-                </div>
-
-                {replyDraft ? (
-                  <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    <div>
-                      <label style={{ fontSize: '0.825rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '0.3rem' }}>
-                        Editable Draft Body:
-                      </label>
-                      <textarea
-                        className="reply-editor"
-                        value={draftBody}
-                        onChange={(e) => setDraftBody(e.target.value)}
-                        disabled={replyDraft.status === 'sent'}
-                      />
-                    </div>
-
-                    {sendSuccess && (
-                      <div className="status-pill status-connected" style={{ padding: '0.6rem 1rem', width: '100%' }}>
-                        <ShieldCheck size={16} />
-                        <span>Email successfully sent and confirmed via Gmail!</span>
-                      </div>
-                    )}
-
-                    {replyDraft.status === 'sent' ? (
-                      <div className="status-pill status-connected" style={{ padding: '0.6rem 1rem' }}>
-                        <ShieldCheck size={16} />
-                        <span>Email dispatched through Gmail on {new Date(replyDraft.sent_at || '').toLocaleString()}.</span>
-                      </div>
-                    ) : (
-                      <>
-                        <label className="confirm-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={confirmSend}
-                            onChange={(e) => setConfirmSend(e.target.checked)}
-                          />
-                          <span>
-                            I have reviewed this draft and explicitly confirm sending it through my Gmail account.
-                          </span>
-                        </label>
-
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                          <button
-                            onClick={() => setSelectedEmail(null)}
-                            className="btn btn-outline"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={handleApproveAndSend}
-                            disabled={!confirmSend || sendingReply}
-                            className="btn btn-primary"
-                          >
-                            <Send size={15} />
-                            <span>{sendingReply ? 'Dispatching...' : 'Approve & Send via Gmail'}</span>
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.5rem' }}>
-                    Click <strong>Generate Draft</strong> above to have Hugging Face compose a contextual response.
-                  </p>
-                )}
-              </div>
+              )}
             </div>
           </div>
         </div>

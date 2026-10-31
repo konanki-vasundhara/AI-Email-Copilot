@@ -12,6 +12,15 @@ class TaskBase(BaseModel):
     status: str = "pending"
 
 
+class TaskEmailSummary(BaseModel):
+    id: UUID
+    subject: Optional[str] = None
+    sender: Optional[str] = None
+    received_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TaskCreate(TaskBase):
     email_id: Optional[UUID] = None
 
@@ -29,6 +38,7 @@ class TaskRead(TaskBase):
     email_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
+    email: Optional[TaskEmailSummary] = None
 
     model_config = ConfigDict(from_attributes=True)
 

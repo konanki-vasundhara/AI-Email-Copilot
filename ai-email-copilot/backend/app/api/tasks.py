@@ -2,12 +2,14 @@
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.db.models import User, Task
 from app.schemas.task import TaskRead, TaskCreate, TaskUpdate
+from app.services.ai_service import ai_service
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -25,7 +27,7 @@ async def list_tasks(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    query = select(Task).where(Task.user_id == user.id)
+    query = select(Task).options(selectinload(Task.email)).where(Task.user_id == user.id)
 
     if status_filter:
         query = query.where(Task.status == status_filter)
@@ -34,7 +36,50 @@ async def list_tasks(
 
     query = query.order_by(desc(Task.created_at))
     result = await db.execute(query)
-    return list(result.scalars().all())
+    tasks = list(result.scalars().all())
+
+    # Auto-prune existing junk/boilerplate tasks
+    clean_tasks = []
+    junk_ids = []
+    for t in tasks:
+        if ai_service.is_junk_task_title(t.title):
+            junk_ids.append(t.id)
+        else:
+            clean_tasks.append(t)
+
+    if junk_ids:
+        await db.execute(delete(Task).where(Task.id.in_(junk_ids)))
+        await db.commit()
+
+    # Auto-extract tasks for any user received emails that don't have tasks yet
+    from app.db.models import Email
+    e_stmt = select(Email).where(Email.user_id == user.id)
+    all_emails = list((await db.execute(e_stmt)).scalars().all())
+    added_any = False
+    for em in all_emails:
+        if user.email.lower() in (em.sender or "").lower():
+            continue
+        has_task = any(t.email_id == em.id for t in clean_tasks)
+        if not has_task:
+            extracted = ai_service.extract_tasks_and_deadlines(em.subject or "", em.snippet or "")
+            for td in extracted:
+                nt = Task(
+                    user_id=user.id,
+                    email_id=em.id,
+                    title=td["title"],
+                    due_at=td.get("due_at"),
+                    status="pending",
+                )
+                db.add(nt)
+                added_any = True
+    if added_any:
+        await db.commit()
+        re_query = select(Task).options(selectinload(Task.email)).where(Task.user_id == user.id)
+        if status_filter:
+            re_query = re_query.where(Task.status == status_filter)
+        clean_tasks = list((await db.execute(re_query.order_by(desc(Task.created_at)))).scalars().all())
+
+    return clean_tasks
 
 
 @router.post("/", response_model=TaskRead, summary="Create a new task")
@@ -59,8 +104,9 @@ async def create_task(
     )
     db.add(task)
     await db.commit()
-    await db.refresh(task)
-    return task
+    
+    t_stmt = select(Task).options(selectinload(Task.email)).where(Task.id == task.id)
+    return (await db.execute(t_stmt)).scalar_one()
 
 
 @router.patch("/{task_id}", response_model=TaskRead, summary="Update task")
@@ -76,7 +122,7 @@ async def update_task(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    stmt = select(Task).where(Task.id == task_id, Task.user_id == user.id)
+    stmt = select(Task).options(selectinload(Task.email)).where(Task.id == task_id, Task.user_id == user.id)
     task = (await db.execute(stmt)).scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
@@ -93,6 +139,23 @@ async def update_task(
     await db.commit()
     await db.refresh(task)
     return task
+
+
+@router.delete("/completed/clear", summary="Clear completed tasks")
+async def clear_completed_tasks(
+    user_email: str = Query(..., description="User email for ownership verification"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Deletes all tasks with status 'completed' for the user."""
+    u_stmt = select(User).where(User.email == user_email)
+    user = (await db.execute(u_stmt)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    del_stmt = delete(Task).where(Task.user_id == user.id, Task.status == "completed")
+    res = await db.execute(del_stmt)
+    await db.commit()
+    return {"status": "cleared", "deleted_count": res.rowcount}
 
 
 @router.delete("/{task_id}", summary="Delete a task")

@@ -157,7 +157,7 @@ class GmailService:
             return ""
 
     async def sync_recent_emails(
-        self, user: User, db: AsyncSession, limit: int = 15
+        self, user: User, db: AsyncSession, limit: int = 50
     ) -> List[Email]:
         """
         Synchronizes the most recent emails for a user:
@@ -183,6 +183,16 @@ class GmailService:
             )
             existing = (await db.execute(stmt)).scalar_one_or_none()
             if existing:
+                # Re-check tasks if existing email has no tasks saved
+                from app.db.models import Task
+                t_check = select(Task).where(Task.email_id == existing.id)
+                has_task = (await db.execute(t_check)).scalars().first()
+                if not has_task:
+                    from app.services.ai_service import ai_service
+                    try:
+                        await ai_service.analyze_email_and_save(existing, existing.snippet or "", db)
+                    except Exception:
+                        pass
                 synced_emails.append(existing)
                 continue
 

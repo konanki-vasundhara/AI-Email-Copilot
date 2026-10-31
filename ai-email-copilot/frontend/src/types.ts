@@ -28,6 +28,13 @@ export interface EmailItem {
   analysis?: EmailAnalysis | null;
 }
 
+export interface TaskEmailSummary {
+  id: string;
+  subject?: string | null;
+  sender?: string | null;
+  received_at: string;
+}
+
 export interface TaskItem {
   id: string;
   user_id: string;
@@ -38,6 +45,7 @@ export interface TaskItem {
   status: 'pending' | 'completed' | 'dismissed';
   created_at: string;
   updated_at: string;
+  email?: TaskEmailSummary | null;
 }
 
 export interface ReplyDraftItem {

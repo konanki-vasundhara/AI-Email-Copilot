@@ -18,8 +18,9 @@ router = APIRouter(prefix="/emails", tags=["Emails"])
 async def list_emails(
     user_email: str = Query(..., description="User email identifier"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(25, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=200),
     category: Optional[str] = Query(None, description="Filter by AI category"),
+    folder: Optional[str] = Query(None, description="Filter by folder: 'inbox' (received) or 'sent'"),
     search: Optional[str] = Query(None, description="Search query across subject and sender"),
     db: AsyncSession = Depends(get_db),
 ) -> List[Email]:
@@ -35,6 +36,11 @@ async def list_emails(
         .options(selectinload(Email.analysis))
         .where(Email.user_id == user.id)
     )
+
+    if folder == "inbox":
+        query = query.where(~Email.sender.ilike(f"%{user.email}%"))
+    elif folder == "sent":
+        query = query.where(Email.sender.ilike(f"%{user.email}%"))
 
     if search:
         query = query.where(
@@ -76,7 +82,7 @@ async def get_email_details(
 @router.post("/sync", summary="Trigger Gmail synchronization")
 async def trigger_email_sync(
     user_email: str = Query(..., description="User email to sync inbox for"),
-    limit: int = Query(15, ge=1, le=50, description="Max recent messages to sync"),
+    limit: int = Query(50, ge=1, le=100, description="Max recent messages to sync"),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Manually triggers synchronization of recent emails from Gmail."""

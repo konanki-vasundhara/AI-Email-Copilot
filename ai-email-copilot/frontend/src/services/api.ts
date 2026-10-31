@@ -32,11 +32,13 @@ export async function deleteUserData(email: string): Promise<void> {
 export async function listEmails(
   userEmail: string,
   category?: string,
-  search?: string
+  search?: string,
+  folder?: string
 ): Promise<EmailItem[]> {
-  const params = new URLSearchParams({ user_email: userEmail });
+  const params = new URLSearchParams({ user_email: userEmail, limit: '100' });
   if (category && category !== 'All') params.append('category', category);
   if (search) params.append('search', search);
+  if (folder) params.append('folder', folder);
 
   const res = await fetch(`${API_BASE}/emails/?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to fetch emails');
@@ -44,7 +46,7 @@ export async function listEmails(
 }
 
 export async function syncEmails(userEmail: string): Promise<{ count: number; message: string }> {
-  const res = await fetch(`${API_BASE}/emails/sync?user_email=${encodeURIComponent(userEmail)}`, {
+  const res = await fetch(`${API_BASE}/emails/sync?user_email=${encodeURIComponent(userEmail)}&limit=50`, {
     method: 'POST',
   });
   if (!res.ok) {
@@ -86,6 +88,14 @@ export async function deleteTask(taskId: string, userEmail: string): Promise<voi
     { method: 'DELETE' }
   );
   if (!res.ok) throw new Error('Failed to delete task');
+}
+
+export async function clearCompletedTasks(userEmail: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/tasks/completed/clear?user_email=${encodeURIComponent(userEmail)}`,
+    { method: 'DELETE' }
+  );
+  if (!res.ok) throw new Error('Failed to clear completed tasks');
 }
 
 export async function listReplies(userEmail: string, emailId?: string): Promise<ReplyDraftItem[]> {
