@@ -21,7 +21,11 @@ import * as api from './services/api';
 
 export default function App() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string>(() => {
-    return localStorage.getItem('ai_copilot_email') || 'test.user@example.com';
+    const saved = localStorage.getItem('ai_copilot_email');
+    if (saved && saved !== 'test.user@example.com' && saved.trim() !== '') {
+      return saved;
+    }
+    return 'konankivasundhara@gmail.com';
   });
 
   const [authStatus, setAuthStatus] = useState<AuthStatusResponse | null>(null);
@@ -95,6 +99,10 @@ export default function App() {
     try {
       const status = await api.getAuthStatus(currentUserEmail);
       setAuthStatus(status);
+      if (status.connected && status.email && status.email !== currentUserEmail) {
+        setCurrentUserEmail(status.email);
+        localStorage.setItem('ai_copilot_email', status.email);
+      }
     } catch {
       setAuthStatus({ connected: false });
     }
@@ -330,10 +338,32 @@ export default function App() {
         </div>
 
         <div className="header-actions">
-          {/* Active User Account Badge */}
-          <div className="user-badge" title={`Active Account: ${currentUserEmail}`}>
-            <Mail size={13} color="#64748b" />
-            <span>{currentUserEmail}</span>
+          {/* Editable User Account Input */}
+          <div className="user-email-bar" title="Type or edit your email address">
+            <Mail size={14} color="#64748b" />
+            <input
+              type="email"
+              value={currentUserEmail}
+              placeholder="Enter your email address..."
+              onChange={(e) => {
+                const val = e.target.value.trim();
+                setCurrentUserEmail(val);
+                localStorage.setItem('ai_copilot_email', val);
+              }}
+              onBlur={() => {
+                loadAuthStatus();
+                loadEmails();
+                loadTasks();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  loadAuthStatus();
+                  loadEmails();
+                  loadTasks();
+                }
+              }}
+              className="user-email-input"
+            />
           </div>
 
           {/* Connection Status Badge */}

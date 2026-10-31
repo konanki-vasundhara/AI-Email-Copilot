@@ -263,16 +263,38 @@ async def google_callback(
 
 @router.get("/status", summary="Check Gmail OAuth connection status")
 async def auth_status(
-    email: str = Query(..., description="User email to check connection status for"),
+    email: Optional[str] = Query(None, description="User email to check connection status for"),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Returns the current connection and scope status for a user."""
-    stmt = select(User).where(User.email == email)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+    """Returns the current connection and scope status for a user, or active account if email not specified."""
+    user = None
+    if email and email.strip() and email != "test.user@example.com":
+        stmt = select(User).where(User.email == email.strip())
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
 
     if not user:
-        return {"connected": False, "reason": "User not found"}
+        # Auto-discover active connected user from database
+        active_pair = (
+            await db.execute(
+                select(OAuthConnection, User)
+                .join(User, OAuthConnection.user_id == User.id)
+                .where(OAuthConnection.revoked_at.is_(None))
+                .order_by(OAuthConnection.created_at.desc())
+            )
+        ).first()
+        if active_pair:
+            oauth_conn, user = active_pair
+            return {
+                "connected": True,
+                "user_id": str(user.id),
+                "email": user.email,
+                "display_name": user.display_name,
+                "granted_scopes": oauth_conn.granted_scopes,
+                "has_refresh_token": bool(oauth_conn.encrypted_refresh_token),
+                "expires_at": oauth_conn.expires_at.isoformat() if oauth_conn.expires_at else None,
+            }
+        return {"connected": False, "reason": "No active OAuth connection"}
 
     conn_stmt = select(OAuthConnection).where(
         OAuthConnection.user_id == user.id,
@@ -282,7 +304,7 @@ async def auth_status(
     oauth_conn = conn_result.scalar_one_or_none()
 
     if not oauth_conn:
-        return {"connected": False, "reason": "No active OAuth connection"}
+        return {"connected": False, "reason": "No active OAuth connection for this email"}
 
     has_refresh = bool(oauth_conn.encrypted_refresh_token)
 

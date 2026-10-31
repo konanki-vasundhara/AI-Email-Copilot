@@ -2,8 +2,9 @@ import type { EmailItem, TaskItem, ReplyDraftItem, AuthStatusResponse } from '..
 
 const API_BASE = '/api/v1';
 
-export async function getAuthStatus(email: string): Promise<AuthStatusResponse> {
-  const res = await fetch(`${API_BASE}/auth/status?email=${encodeURIComponent(email)}`);
+export async function getAuthStatus(email?: string): Promise<AuthStatusResponse> {
+  const query = email && email.trim() ? `?email=${encodeURIComponent(email.trim())}` : '';
+  const res = await fetch(`${API_BASE}/auth/status${query}`);
   if (!res.ok) throw new Error('Failed to fetch auth status');
   return res.json();
 }
